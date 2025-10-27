@@ -5,6 +5,36 @@
 Escriba el codigo que ejecute la accion solicitada en cada pregunta.
 """
 
+# Importaciones
+from pathlib import Path
+import zipfile
+import os
+import pandas as pd
+
+# Funciones auxiliares
+def _leer_texto(ruta: Path) -> str:
+    """Lee un archivo de texto como una sola frase (sin saltos de línea)."""
+    with ruta.open("r", encoding="utf-8", errors="ignore") as f:
+        contenido = f.read()
+    return contenido.replace("\n", " ").strip()
+
+
+def _construir_df(split_dir: Path) -> pd.DataFrame:
+    """
+    Recorre split_dir con subcarpetas negative/positive/neutral
+    y construye un DataFrame con columnas: phrase, target.
+    """
+    registros = []
+    for target in ("negative", "positive", "neutral"):
+        subdir = split_dir / target
+        if not subdir.exists():
+            # Si falta alguna etiqueta, simplemente continúa
+            continue
+        for txt_path in subdir.glob("*.txt"):
+            phrase = _leer_texto(txt_path)
+            registros.append({"phrase": phrase, "target": target})
+    return pd.DataFrame(registros, columns=["phrase", "target"])
+
 
 def pregunta_01():
     """
@@ -71,3 +101,53 @@ def pregunta_01():
 
 
     """
+    # Ruta raíz del repositorio
+    repo_root = Path(".").resolve()
+
+    # 1) Descomprimir el ZIP de entrada
+    zip_path = repo_root / "files" / "input.zip"
+    if not zip_path.exists():
+        raise FileNotFoundError(f"No se encontró el archivo: {zip_path}")
+
+    # Extrae en la raíz del repo; el zip debe crear 'input/'
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall(repo_root)
+
+    # 2) Localizar carpeta 'input' (según enunciado debe existir tras extraer)
+    input_dir = repo_root / "input"
+    if not input_dir.exists():
+        # En caso raro de zips que traen la carpeta bajo 'files/input',
+        # intenta esa ruta como fallback.
+        alt_dir = repo_root / "files" / "input"
+        if alt_dir.exists():
+            input_dir = alt_dir
+        else:
+            # Como última opción, intenta detectar un directorio que contenga train/ y test/
+            candidatos = [p for p in repo_root.iterdir() if p.is_dir()]
+            encontrado = None
+            for c in candidatos:
+                if (c / "train").exists() and (c / "test").exists():
+                    encontrado = c
+                    break
+            if encontrado is None:
+                raise FileNotFoundError(
+                    "No se encontró la carpeta 'input' con subcarpetas 'train' y 'test' tras descomprimir."
+                )
+            input_dir = encontrado
+
+    train_dir = input_dir / "train"
+    test_dir = input_dir / "test"
+
+    # 3) Construir DataFrames
+    df_train = _construir_df(train_dir)
+    df_test = _construir_df(test_dir)
+
+    # 4) Asegurar carpeta de salida y guardar CSVs sin índice
+    output_dir = repo_root / "files" / "output"
+    os.makedirs(output_dir, exist_ok=True)
+
+    df_train.to_csv(output_dir / "train_dataset.csv", index=False)
+    df_test.to_csv(output_dir / "test_dataset.csv", index=False)
+
+    print(f"Archivos guardados en: {output_dir}")
+    
